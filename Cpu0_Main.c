@@ -109,10 +109,23 @@ void testFlash4(void)
     IfxPort_setPinLow(LED1);  /* LED1 ON - Start testing */
     Flash4_ReadManufacturerId(g_deviceId);
     
-    UART_SendString("    Manufacturer ID: 0x");
+    /* DEBUG: Show ALL raw bytes received */
+    UART_SendString("    RAW RX Data (all 4 bytes):\r\n");
+    UART_SendString("      [0]: 0x");
+    UART_SendHex(g_debugRxData[0]);
+    UART_SendString(" [1]: 0x");
+    UART_SendHex(g_debugRxData[1]);
+    UART_SendString(" [2]: 0x");
+    UART_SendHex(g_debugRxData[2]);
+    UART_SendString(" [3]: 0x");
+    UART_SendHex(g_debugRxData[3]);
+    UART_SendString("\r\n");
+    
+    UART_SendString("    Parsed Device ID:\r\n");
+    UART_SendString("      Manufacturer ID: 0x");
     UART_SendHex(g_deviceId[0]);
     UART_SendString("\r\n");
-    UART_SendString("    Device ID: 0x");
+    UART_SendString("      Device ID MSB: 0x");
     UART_SendHex(g_deviceId[1]);
     UART_SendString("\r\n");
     

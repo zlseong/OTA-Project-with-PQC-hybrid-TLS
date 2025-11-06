@@ -10,6 +10,9 @@
 IfxQspi_SpiMaster g_qspiFlash4;
 IfxQspi_SpiMaster_Channel g_qspiFlash4Channel;
 
+// Debug: store raw received bytes for analysis
+uint8 g_debugRxData[4] = {0, 0, 0, 0};
+
 // ISRs for QSPI Master
 IFX_INTERRUPT(qspiFlash4TxISR, 0, ISR_PRIORITY_FLASH4_TX);
 IFX_INTERRUPT(qspiFlash4RxISR, 0, ISR_PRIORITY_FLASH4_RX);
@@ -54,7 +57,7 @@ void Flash4_Init(void)
     const IfxQspi_SpiMaster_Pins pins = {
         &IfxQspi2_SCLK_P15_8_OUT, IfxPort_OutputMode_pushPull,      // SCLK
         &IfxQspi2_MTSR_P15_6_OUT, IfxPort_OutputMode_pushPull,      // MOSI
-        &IfxQspi2_MRSTB_P15_7_IN, IfxPort_InputMode_pullDown,       // MISO (MRSTB for master)
+        &IfxQspi2_MRSTB_P15_7_IN, IfxPort_InputMode_pullUp,         // MISO (pull-up, not pull-down!)
         IfxPort_PadDriver_cmosAutomotiveSpeed3
     };
     spiMasterConfig.pins = &pins;
@@ -65,7 +68,15 @@ void Flash4_Init(void)
     // Initialize QSPI channel configuration
     IfxQspi_SpiMaster_initChannelConfig(&spiMasterChannelConfig, &g_qspiFlash4);
     
+    /* Configure channel baudrate */
     spiMasterChannelConfig.ch.baudrate = (float32)FLASH4_QSPI_BAUDRATE;
+    
+    /* Note: Default settings from initChannelConfig already provide:
+     * - 8-bit data width (IfxQspi_DataWidth_8)
+     * - SPI Mode 0 (CPOL=0, CPHA=0)
+     * - MSB first
+     * These are correct for S25FL512S flash chip
+     */
     
     /* MikroBUS CS pin: P15.1 */
     const IfxQspi_SpiMaster_Output slsOutput = {
@@ -93,6 +104,17 @@ void Flash4_Init(void)
     
     /* Small delay after initialization */
     IfxStm_waitTicks(&MODULE_STM0, IfxStm_getTicksFromMilliseconds(&MODULE_STM0, 10));
+    
+    /* CRITICAL: Issue Software Reset to ensure Flash is in known state
+     * This is important because:
+     * 1. Flash might be in Quad mode from previous operation
+     * 2. Reset ensures we're in Legacy SPI mode
+     * 3. Clears any pending operations
+     */
+    Flash4_Reset();
+    
+    /* Wait for reset to complete (per datasheet, tRST = 30us typical) */
+    IfxStm_waitTicks(&MODULE_STM0, IfxStm_getTicksFromMilliseconds(&MODULE_STM0, 1));
 }
 
 void Flash4_WriteCommand(uint8 cmd)
@@ -110,19 +132,22 @@ void Flash4_ReadManufacturerId(uint8 *deviceId)
      * Byte 2: Device ID LSB (20h for 512Mb)
      */
     uint8 txData[4] = {FLASH4_CMD_READ_ID, 0x00, 0x00, 0x00};  /* Send dummy bytes to clock out response */
-    uint8 rxData[4];
+    uint8 rxData[4] = {0, 0, 0, 0};  /* Initialize to zero */
     
     IfxQspi_SpiMaster_exchange(&g_qspiFlash4Channel, txData, rxData, 4);
     while (IfxQspi_SpiMaster_getStatus(&g_qspiFlash4Channel) == IfxQspi_Status_busy);
     
-    /* Response bytes:
-     * rxData[0]: Echo of command byte (ignore)
-     * rxData[1]: Manufacturer ID (should be 0x01)
-     * rxData[2]: Device ID MSB (should be 0x02 for 512Mb)
-     * rxData[3]: Device ID LSB (should be 0x20 for 512Mb)
+    /* DEBUG: Store all 4 bytes for analysis
+     * This helps diagnose if we're reading from wrong byte position
      */
     deviceId[0] = rxData[1];  // Manufacturer ID
     deviceId[1] = rxData[2];  // Device ID MSB
+    
+    /* Additional debug info: store raw bytes in global for UART output */
+    g_debugRxData[0] = rxData[0];
+    g_debugRxData[1] = rxData[1];
+    g_debugRxData[2] = rxData[2];
+    g_debugRxData[3] = rxData[3];
 }
 
 void Flash4_ReadIdentification(uint8 *outData, uint8 nData)
