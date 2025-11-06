@@ -132,13 +132,28 @@ void Flash4_ReadManufacturerId(uint8 *deviceId)
      * Byte 2: Device ID LSB (20h for 512Mb)
      */
     uint8 txData[4] = {FLASH4_CMD_READ_ID, 0x00, 0x00, 0x00};  /* Send dummy bytes to clock out response */
-    uint8 rxData[4] = {0, 0, 0, 0};  /* Initialize to zero */
+    uint8 rxData[4] = {0xAA, 0xAA, 0xAA, 0xAA};  /* Initialize to 0xAA to detect if RX happens */
     
+    /* Manual CS control for debugging */
+    IfxPort_setPinLow(&MODULE_P15, 1);   /* CS LOW - Select flash */
+    
+    /* Small delay for CS setup time */
+    IfxStm_waitTicks(&MODULE_STM0, IfxStm_getTicksFromMicroseconds(&MODULE_STM0, 1));
+    
+    /* Perform SPI exchange */
     IfxQspi_SpiMaster_exchange(&g_qspiFlash4Channel, txData, rxData, 4);
     while (IfxQspi_SpiMaster_getStatus(&g_qspiFlash4Channel) == IfxQspi_Status_busy);
     
-    /* DEBUG: Store all 4 bytes for analysis
-     * This helps diagnose if we're reading from wrong byte position
+    /* Small delay for CS hold time */
+    IfxStm_waitTicks(&MODULE_STM0, IfxStm_getTicksFromMicroseconds(&MODULE_STM0, 1));
+    
+    IfxPort_setPinHigh(&MODULE_P15, 1);  /* CS HIGH - Deselect flash */
+    
+    /* Response bytes:
+     * rxData[0]: Echo of command byte (ignore)
+     * rxData[1]: Manufacturer ID (should be 0x01)
+     * rxData[2]: Device ID MSB (should be 0x02 for 512Mb)
+     * rxData[3]: Device ID LSB (should be 0x20 for 512Mb)
      */
     deviceId[0] = rxData[1];  // Manufacturer ID
     deviceId[1] = rxData[2];  // Device ID MSB
