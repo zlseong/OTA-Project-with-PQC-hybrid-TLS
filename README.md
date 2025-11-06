@@ -23,6 +23,16 @@ The Flash 4 Click module connects to the TC375 Lite Kit via the MikroBUS connect
 | PWM (IO2) | - | GPIO (Optional) | Not used |
 | INT (IO3) | - | GPIO (Optional) | Not used |
 
+### UART Debug Output
+The project includes UART output for detailed test results:
+
+| Signal | TC375 Pin | Function | Description |
+|--------|-----------|----------|-------------|
+| UART TX | P14.0 | ASCLIN0_TX | Debug output (115200 baud, 8N1) - Connected to on-board USB-Serial |
+| UART RX | P14.1 | ASCLIN0_RX | Not used in current implementation |
+
+**Note**: TC375 Lite Kit has an **on-board FT232 USB-Serial converter** connected to ASCLIN0 (P14.0/P14.1). This appears as a COM port when you connect the USB cable.
+
 ### Hardware Notes
 1. The Flash 4 Click module should be inserted into the MikroBUS socket on the TC375 Lite Kit
 2. Ensure proper 3.3V power supply connection
@@ -36,6 +46,9 @@ The Flash 4 Click module connects to the TC375 Lite Kit via the MikroBUS connect
 QSPI_Externalmemory/
 ├── Flash4_Driver.h          # Flash driver header file
 ├── Flash4_Driver.c          # Flash driver implementation
+├── Flash4_Config.h          # Flash driver configuration
+├── UART_Debug.h             # UART debug output header
+├── UART_Debug.c             # UART debug output implementation
 ├── Cpu0_Main.c              # Main application with test code
 ├── README.md                # This file
 └── Libraries/               # iLLD libraries (provided by Infineon)
@@ -49,6 +62,8 @@ QSPI_Externalmemory/
 - Status register polling for operation completion
 - Device ID reading for hardware verification
 - Interrupt-driven QSPI communication
+- **UART debug output with detailed test results (115200 baud, 8N1)**
+- LED status indicators for visual feedback
 
 ### Flash Memory Commands Supported
 | Command | Description | Function |
@@ -131,17 +146,63 @@ if(Flash4_CheckWEL())
 
 The included test application (`Cpu0_Main.c`) performs the following operations:
 
-1. **Initialize**: Sets up QSPI interface and LED
+1. **Initialize**: Sets up QSPI interface, UART debug output, and LEDs
 2. **Device ID Check**: Reads and verifies manufacturer ID
 3. **Erase**: Erases a sector at address 0x00001234
 4. **Write**: Writes "MikroElektronika" string to flash
 5. **Read**: Reads back the data
 6. **Verify**: Compares written and read data
-7. **Indicate**: Turns on LED1 if test passes
+7. **Indicate**: Shows result via LED and UART output
+
+### UART Debug Output
+
+Connect a serial terminal (115200 baud, 8N1) to P32.3 (TX) to view detailed test results:
+
+```
+========================================
+  TC375 Flash4 QSPI Test Application
+  MIKROE-3191 External Flash Driver
+========================================
+
+Initializing QSPI interface...
+QSPI initialized successfully
+
+=== Flash4 QSPI Test Start ===
+
+[1] Reading Device ID...
+    Manufacturer ID: 0x01
+    Device ID: 0x19
+    [OK] Device ID verified
+
+[2] Erasing sector at address 0x00001234...
+    Waiting for erase to complete...
+    [OK] Sector erased successfully
+
+[3] Writing 10 bytes to address 0x00001234...
+    Data: "MikroElektronika"
+    Waiting for program to complete...
+    [OK] Data written successfully
+
+[4] Reading 10 bytes from address 0x00001234...
+    Data read: "MikroElektronika"
+
+[5] Verifying data...
+    [OK] All data verified successfully!
+
+=== Flash4 Test Complete ===
+Result: PASS
+
+>>> TEST PASSED - Both LEDs are ON <<<
+```
 
 ### LED Indicators
-- **LED1 ON**: Test passed - data written and read successfully
-- **LED1 OFF**: Test failed or flash not connected
+- **Both LEDs ON**: Test passed - all operations successful
+- **LED1 blinks N times, LED2 blinks continuously**: Test failed at step N
+  - 1 blink: Device ID mismatch
+  - 2 blinks: Erase timeout
+  - 3 blinks: Write timeout
+  - 4 blinks: Read timeout
+  - 5 blinks: Data verification failed
 
 ## Memory Specifications (S25FL512S)
 

@@ -18,6 +18,7 @@
 
 /* Baudrate Configuration */
 #define FLASH4_QSPI_MAX_BAUDRATE        50000000UL  /* Max baudrate for QSPI module */
+#define FLASH4_QSPI_BAUDRATE            1000000.0f  /* Channel baudrate: 1 MHz for compatibility */
 
 /* Interrupt Priorities (0-255, lower number = higher priority) */
 #define ISR_PRIORITY_FLASH4_TX          60          /* Transmit interrupt priority */

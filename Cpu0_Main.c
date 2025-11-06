@@ -31,6 +31,7 @@
 #include "IfxStm.h"
 #include "Ifx_Cfg_Ssw.h"
 #include "Flash4_Driver.h"
+#include "UART_Debug.h"
 
 /*********************************************************************************************************************/
 /*------------------------------------------------------Macros-------------------------------------------------------*/
@@ -95,6 +96,8 @@ void testFlash4(void)
     uint8 i;
     boolean dataMatch = TRUE;
     
+    UART_SendString("\r\n=== Flash4 QSPI Test Start ===\r\n");
+    
     /* Clear read buffer */
     for(i = 0; i < TEST_DATA_SIZE; i++)
     {
@@ -102,59 +105,139 @@ void testFlash4(void)
     }
     
     /* Step 1: Read Device ID */
+    UART_SendString("\r\n[1] Reading Device ID...\r\n");
     IfxPort_setPinLow(LED1);  /* LED1 ON - Start testing */
     Flash4_ReadManufacturerId(g_deviceId);
     
-    /* Verify manufacturer ID */
-    if(g_deviceId[0] != FLASH4_MANUFACTURER_ID)
+    UART_SendString("    Manufacturer ID: 0x");
+    UART_SendHex(g_deviceId[0]);
+    UART_SendString("\r\n");
+    UART_SendString("    Device ID: 0x");
+    UART_SendHex(g_deviceId[1]);
+    UART_SendString("\r\n");
+    
+    /* Additional diagnostic: Try READ_IDENTIFICATION command */
+    UART_SendString("\r\n[DEBUG] Trying alternate ID read (9Fh)...\r\n");
+    uint8 altId[3];
+    Flash4_ReadIdentification(altId, 3);
+    UART_SendString("    Alt ID[0]: 0x");
+    UART_SendHex(altId[0]);
+    UART_SendString("\r\n    Alt ID[1]: 0x");
+    UART_SendHex(altId[1]);
+    UART_SendString("\r\n    Alt ID[2]: 0x");
+    UART_SendHex(altId[2]);
+    UART_SendString("\r\n");
+    
+    /* Check if we got valid data */
+    if(g_deviceId[0] == 0xFF && g_deviceId[1] == 0xFF)
     {
-        /* ID mismatch - flash might not be connected properly */
+        UART_SendString("\r\n[ERROR] All 0xFF - possible issues:\r\n");
+        UART_SendString("  1. Flash chip not connected\r\n");
+        UART_SendString("  2. MISO pin not receiving data\r\n");
+        UART_SendString("  3. Chip Select (CS) not working\r\n");
+        UART_SendString("  4. Wrong QSPI pins configured\r\n");
         g_errorStep = 1;
         return;
     }
     
+    /* Verify manufacturer ID and device ID */
+    if(g_deviceId[0] != FLASH4_MANUFACTURER_ID)
+    {
+        /* ID mismatch - flash might not be connected properly */
+        UART_SendString("    [ERROR] Manufacturer ID mismatch!\r\n");
+        UART_SendString("    Expected: 0x");
+        UART_SendHex(FLASH4_MANUFACTURER_ID);
+        UART_SendString(", Got: 0x");
+        UART_SendHex(g_deviceId[0]);
+        UART_SendString("\r\n");
+        g_errorStep = 1;
+        return;
+    }
+    
+    if(g_deviceId[1] != FLASH4_DEVICE_ID_MSB)
+    {
+        /* Device ID MSB mismatch */
+        UART_SendString("    [WARNING] Device ID MSB mismatch!\r\n");
+        UART_SendString("    Expected: 0x");
+        UART_SendHex(FLASH4_DEVICE_ID_MSB);
+        UART_SendString(", Got: 0x");
+        UART_SendHex(g_deviceId[1]);
+        UART_SendString("\r\n");
+        UART_SendString("    [INFO] Continuing anyway...\r\n");
+    }
+    
+    UART_SendString("    [OK] S25FL512S Flash detected!\r\n");
+    
     waitMs(500);
     IfxPort_setPinHigh(LED1);  /* LED1 OFF */
     
-    /* Step 2: Enable write */
+    /* Step 2: Erase Sector */
+    UART_SendString("\r\n[2] Erasing sector at address ");
+    UART_SendHex32(TEST_ADDRESS);
+    UART_SendString("...\r\n");
+    
     IfxPort_setPinLow(LED2);   /* LED2 ON - Erasing */
     Flash4_WriteCommand(FLASH4_CMD_WRITE_ENABLE_WREN);
     waitMs(10);
     
-    /* Step 3: Erase sector at test address */
     Flash4_SectorErase4(TEST_ADDRESS);
     
     /* Wait for erase to complete (sector erase can take several seconds) */
+    UART_SendString("    Waiting for erase to complete...\r\n");
     if(Flash4_WaitReady(5000) != FLASH4_OK)
     {
         /* Timeout during erase */
+        UART_SendString("    [ERROR] Erase timeout!\r\n");
         g_errorStep = 2;
         return;
     }
     
+    UART_SendString("    [OK] Sector erased successfully\r\n");
+    
     waitMs(100);
     IfxPort_setPinHigh(LED2);  /* LED2 OFF */
     
-    /* Step 4: Enable write again for programming */
+    /* Step 3: Write Data */
+    UART_SendString("\r\n[3] Writing ");
+    UART_SendHex((uint8)TEST_DATA_SIZE);
+    UART_SendString(" bytes to address ");
+    UART_SendHex32(TEST_ADDRESS);
+    UART_SendString("...\r\n");
+    UART_SendString("    Data: \"");
+    for(i = 0; i < TEST_DATA_SIZE; i++)
+    {
+        UART_SendChar(g_writeBuffer[i]);
+    }
+    UART_SendString("\"\r\n");
+    
     IfxPort_setPinLow(LED1);   /* LED1 ON - Programming */
     Flash4_WriteCommand(FLASH4_CMD_WRITE_ENABLE_WREN);
     waitMs(10);
     
-    /* Step 5: Write data to flash */
     Flash4_PageProgram4(g_writeBuffer, TEST_ADDRESS, TEST_DATA_SIZE);
     
     /* Wait for program to complete */
+    UART_SendString("    Waiting for program to complete...\r\n");
     if(Flash4_WaitReady(1000) != FLASH4_OK)
     {
         /* Timeout during programming */
+        UART_SendString("    [ERROR] Program timeout!\r\n");
         g_errorStep = 3;
         return;
     }
     
+    UART_SendString("    [OK] Data written successfully\r\n");
+    
     waitMs(100);
     IfxPort_setPinHigh(LED1);  /* LED1 OFF */
     
-    /* Step 6: Read back data from flash */
+    /* Step 4: Read Data */
+    UART_SendString("\r\n[4] Reading ");
+    UART_SendHex((uint8)TEST_DATA_SIZE);
+    UART_SendString(" bytes from address ");
+    UART_SendHex32(TEST_ADDRESS);
+    UART_SendString("...\r\n");
+    
     IfxPort_setPinLow(LED2);   /* LED2 ON - Reading */
     Flash4_ReadFlash4(g_readBuffer, TEST_ADDRESS, TEST_DATA_SIZE);
     
@@ -162,18 +245,35 @@ void testFlash4(void)
     if(Flash4_WaitReady(1000) != FLASH4_OK)
     {
         /* Timeout during read */
+        UART_SendString("    [ERROR] Read timeout!\r\n");
         g_errorStep = 4;
         return;
     }
     
+    UART_SendString("    Data read: \"");
+    for(i = 0; i < TEST_DATA_SIZE; i++)
+    {
+        UART_SendChar(g_readBuffer[i]);
+    }
+    UART_SendString("\"\r\n");
+    
     waitMs(100);
     IfxPort_setPinHigh(LED2);  /* LED2 OFF */
     
-    /* Step 7: Verify data */
+    /* Step 5: Verify Data */
+    UART_SendString("\r\n[5] Verifying data...\r\n");
+    
     for(i = 0; i < TEST_DATA_SIZE; i++)
     {
         if(g_readBuffer[i] != g_writeBuffer[i])
         {
+            UART_SendString("    [ERROR] Data mismatch at byte ");
+            UART_SendHex(i);
+            UART_SendString(": expected 0x");
+            UART_SendHex(g_writeBuffer[i]);
+            UART_SendString(", got 0x");
+            UART_SendHex(g_readBuffer[i]);
+            UART_SendString("\r\n");
             dataMatch = FALSE;
             break;
         }
@@ -181,16 +281,33 @@ void testFlash4(void)
     
     if(dataMatch)
     {
+        UART_SendString("    [OK] All data verified successfully!\r\n");
         g_testPassed = TRUE;
     }
     else
     {
+        UART_SendString("    [ERROR] Data verification failed!\r\n");
         g_errorStep = 5;
+    }
+    
+    UART_SendString("\r\n=== Flash4 Test Complete ===\r\n");
+    
+    if(g_testPassed)
+    {
+        UART_SendString("Result: PASS\r\n\r\n");
+    }
+    else
+    {
+        UART_SendString("Result: FAIL (Error step: ");
+        UART_SendHex(g_errorStep);
+        UART_SendString(")\r\n\r\n");
     }
 }
 
 void core0_main(void)
 {
+    uint8 counter = 0;
+    
     IfxCpu_enableInterrupts();
     
     /* !!WATCHDOG0 AND SAFETY WATCHDOG ARE DISABLED HERE!!
@@ -203,14 +320,46 @@ void core0_main(void)
     IfxCpu_emitEvent(&cpuSyncEvent);
     IfxCpu_waitEvent(&cpuSyncEvent, 1);
     
-    /* Initialize LED */
+    /* Initialize LED first - most basic test */
     initLED();
     
-    /* Initialize Flash4 QSPI interface */
-    Flash4_Init();
+    /* Blink LEDs to show we're alive */
+    IfxPort_setPinLow(LED1);
+    waitMs(500);
+    IfxPort_setPinHigh(LED1);
     
-    /* Wait for flash to be ready */
+    IfxPort_setPinLow(LED2);
+    waitMs(500);
+    IfxPort_setPinHigh(LED2);
+    
+    /* Initialize UART for debug output */
+    UART_Init();
+    waitMs(500);
+    
+    /* Send startup message */
+    UART_SendString("\r\n\r\n");
+    UART_SendString("========================================\r\n");
+    UART_SendString("  TC375 Flash4 QSPI Test Application\r\n");
+    UART_SendString("  MIKROE-3191 External Flash Driver\r\n");
+    UART_SendString("========================================\r\n");
+    
+    /* Blink LED1 3 times to indicate UART init complete */
+    for(counter = 0; counter < 3; counter++)
+    {
+        IfxPort_setPinLow(LED1);
+        waitMs(200);
+        IfxPort_setPinHigh(LED1);
+        waitMs(200);
+    }
+    
+    UART_SendString("\r\nStarting Flash test in 3 seconds...\r\n");
+    waitMs(3000);
+    
+    /* Initialize Flash4 QSPI interface */
+    UART_SendString("\r\nInitializing QSPI interface...\r\n");
+    Flash4_Init();
     waitMs(100);
+    UART_SendString("QSPI initialized successfully\r\n");
     
     /* Perform Flash4 test */
     testFlash4();
@@ -218,12 +367,34 @@ void core0_main(void)
     /* Display result with LED patterns */
     if(g_testPassed)
     {
-        /* Success: Both LEDs ON */
-        IfxPort_setPinLow(LED1);
-        IfxPort_setPinLow(LED2);
+        /* Success: Both LEDs blink alternately forever */
+        UART_SendString("\r\n>>> TEST PASSED <<<\r\n");
+        UART_SendString("LEDs will blink alternately\r\n");
+        
+        while(1)
+        {
+            IfxPort_setPinLow(LED1);
+            IfxPort_setPinHigh(LED2);
+            waitMs(500);
+            
+            IfxPort_setPinHigh(LED1);
+            IfxPort_setPinLow(LED2);
+            waitMs(500);
+        }
     }
     else
     {
+        UART_SendString("\r\n>>> TEST FAILED <<<\r\n");
+        UART_SendString("Error Step: ");
+        UART_SendHex(g_errorStep);
+        UART_SendString("\r\n");
+        UART_SendString("  1 = Device ID mismatch\r\n");
+        UART_SendString("  2 = Erase timeout\r\n");
+        UART_SendString("  3 = Write timeout\r\n");
+        UART_SendString("  4 = Read timeout\r\n");
+        UART_SendString("  5 = Data verification failed\r\n");
+        UART_SendString("\r\nLED1 will blink error code, LED2 blinks continuously\r\n");
+        
         /* Error: Blink pattern based on error step */
         while(1)
         {
@@ -237,7 +408,6 @@ void core0_main(void)
                 waitMs(200);
             }
             
-            /* Long pause */
             waitMs(1000);
             
             /* Blink LED2 continuously to show error state */
@@ -246,12 +416,5 @@ void core0_main(void)
             IfxPort_setPinHigh(LED2);
             waitMs(100);
         }
-    }
-    
-    while(1)
-    {
-        /* Main loop - test is complete */
-        /* Success: Both LEDs ON */
-        /* Error: LED1 blinks N times (N = error step), LED2 blinks continuously */
     }
 }

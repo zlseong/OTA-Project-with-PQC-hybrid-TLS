@@ -15,6 +15,7 @@
 #include "Ifx_Types.h"
 #include "IfxQspi_SpiMaster.h"
 #include "IfxPort.h"
+#include "Flash4_Config.h"
 
 /*********************************************************************************************************************/
 /*------------------------------------------------------Macros-------------------------------------------------------*/
@@ -69,13 +70,14 @@
 #define FLASH4_CMD_SOFTWARE_RESET                0xF0
 #define FLASH4_CMD_MODE_BIT_RESET                0xFF
 
-/* Flash device IDs */
-#define FLASH4_MANUFACTURER_ID                   0x01
-#define FLASH4_DEVICE_ID                         0x19
+/* Flash device IDs (per S25FL512S datasheet Table 50) */
+#define FLASH4_MANUFACTURER_ID                   0x01    /* Spansion/Cypress */
+#define FLASH4_DEVICE_ID_MSB                     0x02    /* 512 Mb - Most Significant Byte */
+#define FLASH4_DEVICE_ID_LSB                     0x20    /* 512 Mb - Least Significant Byte */
+#define FLASH4_DEVICE_ID                         0x19    /* Legacy: Keep for compatibility */
 
 /* Configuration */
 #define FLASH4_MAX_PAGE_SIZE                     256
-#define FLASH4_QSPI_BAUDRATE                     1000000     /* 1 MHz SPI clock */
 
 /* Interrupt Service Routine priorities */
 #define ISR_PRIORITY_FLASH4_TX                   60

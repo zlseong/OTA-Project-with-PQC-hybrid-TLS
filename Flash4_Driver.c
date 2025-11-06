@@ -50,11 +50,11 @@ void Flash4_Init(void)
     spiMasterConfig.erPriority = ISR_PRIORITY_FLASH4_ER;
     spiMasterConfig.isrProvider = IfxSrc_Tos_cpu0;
     
-    // Configure pins
+    // Configure pins - Use MRSTB for Master mode (MISO is input)
     const IfxQspi_SpiMaster_Pins pins = {
         &IfxQspi2_SCLK_P15_8_OUT, IfxPort_OutputMode_pushPull,      // SCLK
         &IfxQspi2_MTSR_P15_6_OUT, IfxPort_OutputMode_pushPull,      // MOSI
-        &IfxQspi2_MRSTB_P15_7_IN, IfxPort_InputMode_pullDown,       // MISO (use MRSTB variant)
+        &IfxQspi2_MRSTB_P15_7_IN, IfxPort_InputMode_pullDown,       // MISO (MRSTB for master)
         IfxPort_PadDriver_cmosAutomotiveSpeed3
     };
     spiMasterConfig.pins = &pins;
@@ -65,16 +65,34 @@ void Flash4_Init(void)
     // Initialize QSPI channel configuration
     IfxQspi_SpiMaster_initChannelConfig(&spiMasterChannelConfig, &g_qspiFlash4);
     
-    spiMasterChannelConfig.ch.baudrate = FLASH4_QSPI_BAUDRATE;
+    spiMasterChannelConfig.ch.baudrate = (float32)FLASH4_QSPI_BAUDRATE;
     
+    /* MikroBUS CS pin: P15.1 */
     const IfxQspi_SpiMaster_Output slsOutput = {
-        &IfxQspi2_SLSO5_P15_1_OUT, IfxPort_OutputMode_pushPull,      // SLSO5 for P15.1
+        &IfxQspi2_SLSO5_P15_1_OUT, IfxPort_OutputMode_pushPull,
         IfxPort_PadDriver_cmosAutomotiveSpeed3
     };
     spiMasterChannelConfig.sls.output = slsOutput;
     
     // Initialize QSPI channel
     IfxQspi_SpiMaster_initChannel(&g_qspiFlash4Channel, &spiMasterChannelConfig);
+    
+    /* Additionally configure CS as GPIO for manual control (if needed) */
+    IfxPort_setPinModeOutput(&MODULE_P15, 1, IfxPort_OutputMode_pushPull, IfxPort_OutputIdx_general);
+    IfxPort_setPinHigh(&MODULE_P15, 1);  /* CS idle high */
+    
+    /* Configure WP (IO2) and HOLD (IO3) pins - MikroBUS PWM and INT */
+    /* These pins MUST be HIGH to disable Write Protect and Hold functions */
+    /* Typical MikroBUS mapping: PWM=P21.2 or P00.0, INT=P02.1 or P00.7 */
+    /* Try common TC375 Lite Kit MikroBUS pins: */
+    IfxPort_setPinModeOutput(&MODULE_P00, 0, IfxPort_OutputMode_pushPull, IfxPort_OutputIdx_general);
+    IfxPort_setPinHigh(&MODULE_P00, 0);  /* PWM pin (IO2/WP) = HIGH (Write Protect disabled) */
+    
+    IfxPort_setPinModeOutput(&MODULE_P00, 7, IfxPort_OutputMode_pushPull, IfxPort_OutputIdx_general);
+    IfxPort_setPinHigh(&MODULE_P00, 7);  /* INT pin (IO3/HOLD) = HIGH (Hold disabled) */
+    
+    /* Small delay after initialization */
+    IfxStm_waitTicks(&MODULE_STM0, IfxStm_getTicksFromMilliseconds(&MODULE_STM0, 10));
 }
 
 void Flash4_WriteCommand(uint8 cmd)
@@ -85,14 +103,26 @@ void Flash4_WriteCommand(uint8 cmd)
 
 void Flash4_ReadManufacturerId(uint8 *deviceId)
 {
-    uint8 txData[4] = {FLASH4_CMD_READ_ID, 0x00, 0x00, 0x00};
+    /* RDID (9Fh) command does NOT require address bytes
+     * Response format (per S25FL512S datasheet Table 50):
+     * Byte 0: Manufacturer ID (01h for Spansion/Cypress)
+     * Byte 1: Device ID MSB (02h for 512Mb)
+     * Byte 2: Device ID LSB (20h for 512Mb)
+     */
+    uint8 txData[4] = {FLASH4_CMD_READ_ID, 0x00, 0x00, 0x00};  /* Send dummy bytes to clock out response */
     uint8 rxData[4];
+    
     IfxQspi_SpiMaster_exchange(&g_qspiFlash4Channel, txData, rxData, 4);
     while (IfxQspi_SpiMaster_getStatus(&g_qspiFlash4Channel) == IfxQspi_Status_busy);
     
-    // Extract manufacturer and device ID (skip first 2 dummy bytes)
-    deviceId[0] = rxData[2];  // Manufacturer ID
-    deviceId[1] = rxData[3];  // Device ID
+    /* Response bytes:
+     * rxData[0]: Echo of command byte (ignore)
+     * rxData[1]: Manufacturer ID (should be 0x01)
+     * rxData[2]: Device ID MSB (should be 0x02 for 512Mb)
+     * rxData[3]: Device ID LSB (should be 0x20 for 512Mb)
+     */
+    deviceId[0] = rxData[1];  // Manufacturer ID
+    deviceId[1] = rxData[2];  // Device ID MSB
 }
 
 void Flash4_ReadIdentification(uint8 *outData, uint8 nData)
