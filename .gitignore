@@ -1,0 +1,37 @@
+# AURIX Development Studio Build Files
+TriCore Debug (TASKING)/
+TriCore Release (TASKING)/
+*.elf
+*.hex
+*.map
+*.lst
+
+# Eclipse Project Files
+.settings/
+.metadata/
+.project
+.cproject
+
+# Build Artifacts
+*.o
+*.obj
+*.a
+*.lib
+
+# Log Files
+*.log
+
+# Temporary Files
+*~
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# IDE Specific
+.vscode/
+.idea/
+
+# Generated Files
+*_generated.*
+
