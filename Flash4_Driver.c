@@ -53,17 +53,26 @@ void Flash4_Init(void)
     spiMasterConfig.erPriority = ISR_PRIORITY_FLASH4_ER;
     spiMasterConfig.isrProvider = IfxSrc_Tos_cpu0;
     
-    // Configure pins - Use MRSTB for Master mode (MISO is input)
+    // Configure pins for MikroBUS QSPI2 (from AURIX Safe Communication example)
+    // These are the ACTUAL physical pins on MikroBUS connector
     const IfxQspi_SpiMaster_Pins pins = {
         &IfxQspi2_SCLK_P15_8_OUT, IfxPort_OutputMode_pushPull,      // SCLK
         &IfxQspi2_MTSR_P15_6_OUT, IfxPort_OutputMode_pushPull,      // MOSI
-        &IfxQspi2_MRSTB_P15_7_IN, IfxPort_InputMode_pullUp,         // MISO (pull-up, not pull-down!)
+        &IfxQspi2_MRSTB_P15_7_IN, IfxPort_InputMode_pullUp,         // MISO
         IfxPort_PadDriver_cmosAutomotiveSpeed3
     };
     spiMasterConfig.pins = &pins;
     
     // Initialize QSPI module
     IfxQspi_SpiMaster_initModule(&g_qspiFlash4, &spiMasterConfig);
+    
+    /* CRITICAL FIX: Manually set pin modes to ensure QSPI function is enabled
+     * TC375 Lite Kit might have these pins muxed to other functions by default
+     * P15.8 = SCLK (ALT3), P15.6 = MTSR (ALT5), P15.7 = MRST (input)
+     */
+    IfxPort_setPinModeOutput(&MODULE_P15, 8, IfxPort_OutputMode_pushPull, IfxPort_OutputIdx_alt3);
+    IfxPort_setPinModeOutput(&MODULE_P15, 6, IfxPort_OutputMode_pushPull, IfxPort_OutputIdx_alt5);
+    IfxPort_setPinModeInput(&MODULE_P15, 7, IfxPort_InputMode_pullUp);
 
     // Initialize QSPI channel configuration
     IfxQspi_SpiMaster_initChannelConfig(&spiMasterChannelConfig, &g_qspiFlash4);
